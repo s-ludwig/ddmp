@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright 2008 Google Inc. All Rights Reserved.
  * Copyright 2013-2014 Jan Krüger. All Rights Reserved.
  * Author: fraser@google.com (Neil Fraser)
@@ -289,24 +289,45 @@ if (isSomeString!Str) {
     }
 }
 
-/// The character offset should be aware of unicode, otherwise, the common prefix can end up
-/// splitting a single character's bytes.
 size_t commonPrefix(Str)(Str text1, Str text2)
-if (isSomeString!Str) {
-    auto n = min(text1.length, text2.length);
-    foreach (i; 0 .. n)
-        if (text1[i] != text2[i])
-            return i;
-    return n;
+{
+    size_t ret = 0;
+    while (text1.length && text2.length) {
+        size_t n = text1.utfStride;
+        if (text2.length < n || text1[0 .. n] != text2[0 .. n])
+            return ret;
+        text1 = text1[n .. $];
+        text2 = text2[n .. $];
+        ret += n;
+    }
+    return ret;
+}
+
+unittest {
+    assert(commonPrefix("abcd", "abdd") == 2);
+    assert(commonPrefix("abäd", "abäe") == 4);
+    assert(commonPrefix("abä", "abö") == 2);
 }
 
 size_t commonSuffix(Str)(Str text1, Str text2)
-if (isSomeString!Str) {
-    auto n = min(text1.length, text2.length);
-    foreach (i; 1 .. n+1)
-        if (text1[$-i] != text2[$-i])
-            return i-1;
-    return n;
+{
+    size_t ret = 0;
+    while (text1.length && text2.length) {
+        size_t n = text1.utfStrideBack;
+        if (text2.length < n || text1[$-n .. $] != text2[$-n .. $])
+            return ret;
+        text1 = text1[0 .. $-n];
+        text2 = text2[0 .. $-n];
+        ret += n;
+    }
+    return ret;
+}
+
+unittest {
+    assert(commonSuffix("bbcd", "abcd") == 3);
+    assert(commonSuffix("acäd", "abäd") == 3);
+    assert(commonSuffix("äbc", "öbc") == 2);
+    assert(commonSuffix("äbc", "öbc") == 2);
 }
 
 /**
@@ -316,44 +337,48 @@ if (isSomeString!Str) {
 * @return The number of characters common to the end of the first
 *     string and the start of the second string.
 */
-size_t commonOverlap(Str)(Str text1, Str text2)
-if (isSomeString!Str) {
-    // Cache the text lengths to prevent multiple calls.
-    auto text1_length = text1.length;
-    auto text2_length = text2.length;
-    // Eliminate the null case.
-    if (text1_length == 0 || text2_length == 0) return 0;
+size_t commonOverlap(Str)(Str text1, Str text2) {
+    if (!text2.length)
+        return 0;
 
-    // Truncate the longer string.
-    if (text1_length > text2_length) {
-        text1 = text1[$ - text2_length .. $];
-    } else if (text1_length < text2_length) {
-        text2 = text2[0 .. text1_length];
+    while (text1.length) {
+        size_t n = text1.utfStride;
+        if (text1.length <= text2.length && text2[0 .. text1.length] == text1)
+            return text1.length;
+        text1 = text1[n .. $];
     }
-    auto text_length = min(text1_length, text2_length);
-    // Quick check for the worst case.
-    if (text1 == text2) {
-        return text_length;
-    }
-
-    // Start by looking for a single character match
-    // and increase length until no match is found.
-    // Performance analysis: http://neil.fraser.name/news/2010/11/04/
-    int best = 0;
-    int length = 1;
-    while (true) {
-        Str pattern = text1[text_length - length .. $];
-        auto found = text2.indexOf(pattern);
-        if (found == -1) {
-            return best;
-        }
-        length += found;
-        if (found == 0 || text1[text_length - length .. $] == text2[0 .. length]) {
-            best = length;
-            length++;
-        }
-    }
+    return 0;
 }
+
+unittest {
+    assert(commonOverlap("abcd", "efgh") == 0);
+    assert(commonOverlap("abcd", "cdef") == 2);
+    assert(commonOverlap("abcä", "ädef") == 2);
+}
+
+private size_t utfStride(Str)(Str text)
+{
+    import std.utf : UTFException, stride;
+    // NOTE: We may get an invalid UTF encoding as input, because not all
+    //       parts of the diff algorithm are UTF correct, yet. For this
+    //       reason, 1 is returned, so that the rest of the algorithm can
+    //       continue to work as usual
+    try return text.stride;
+    catch (UTFException e) return 1;
+}
+
+private size_t utfStrideBack(Str)(Str text)
+{
+    import std.utf : UTFException, strideBack;
+    // NOTE: We may get an invalid UTF encoding as input, because not all
+    //       parts of the diff algorithm are UTF correct, yet. For this
+    //       reason, 1 is returned, so that the rest of the algorithm can
+    //       continue to work as usual
+    try return text.strideBack;
+    catch (UTFException e) return 1;
+}
+
+
 
 /**-
 * The data structure representing a diff is a List of DiffT objects:
@@ -725,9 +750,10 @@ DiffT!(Str)[] bisect(Str)(Str text1, Str text2, SysTime deadline)
                 x1 = v1[k1_offset - 1] + 1;
             }
             auto y1 = x1 - k1;
-            while( x1 < text1_len && y1 < text2_len && text1[x1] == text2[y1] ){
-                x1++;
-                y1++;
+            if (x1 < text1_len && y1 < text2_len) {
+                size_t cp = commonPrefix(text1[x1 .. $], text2[y1 .. $]);
+                x1 += cp;
+                y1 += cp;
             }
             v1[k1_offset] = x1;
             if( x1 > text1_len) {
@@ -751,11 +777,10 @@ DiffT!(Str)[] bisect(Str)(Str text1, Str text2, SysTime deadline)
                 x2 = v2[k2_offset - 1] + 1;
             }
             auto y2 = x2 - k2;
-            while( x2 < text1_len && y2 < text2_len
-                    && text1[text1_len - x2 - 1]
-                    == text2[text2_len - y2 - 1] ){
-                x2++;
-                y2++;
+            if (x2 < text1_len && y2 < text2_len) {
+                size_t cs = commonSuffix(text1[0 .. $-x2], text2[0 .. $-y2]);
+                x2 += cs;
+                y2 += cs;
             }
             v2[k2_offset] = x2;
             if (x2 > text1_len) {
