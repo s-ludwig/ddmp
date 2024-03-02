@@ -25,12 +25,16 @@ module ddmp.match;
 import std.algorithm : min, max;
 import std.array;
 import std.math : abs;
+import std.range : ElementEncodingType;
 import std.string;
+import std.utf : toUTF16, toUTF8;
+import std.traits : isSomeString, Unqual;
+import std.exception : enforce;
 
 import ddmp.util;
 
 float MATCH_THRESHOLD = 0.5f;
-int MATCH_DISTANCE = 1000; 
+int MATCH_DISTANCE = 1000;
 
 /**
  * Locate the best instance of 'pattern' in 'text' near 'loc'.
@@ -40,8 +44,8 @@ int MATCH_DISTANCE = 1000;
  * @param loc The location to search around.
  * @return Best match index or -1.
  */
-sizediff_t match_main(string text, string pattern, sizediff_t loc)
-{
+sizediff_t match_main(Str)(Str text, Str pattern, sizediff_t loc)
+if (isSomeString!Str) {
 	loc = max(0, min(loc, text.length));
 	if( text == pattern ){
 		return 0; // Shortcut (potentially not guaranteed by the algorithm)
@@ -63,12 +67,12 @@ sizediff_t match_main(string text, string pattern, sizediff_t loc)
  * @param loc The location to search around.
  * @return Best match index or -1.
  */
-sizediff_t bitap(string text, string pattern, sizediff_t loc)
-{
+sizediff_t bitap(Str)(Str text, Str pattern, sizediff_t loc)
+if (isSomeString!Str) {
 	// bits need to fit into the positive part of an int
-	assert(pattern.length <= 31);
+	enforce(pattern.length <= 32, "Pattern too long for this application.");
 
-	int[char] s = initAlphabet(pattern);
+	int[Unqual!(ElementEncodingType!Str)] s = initAlphabet(pattern);
 	double score_threshold = MATCH_THRESHOLD;
 	auto best_loc = text.indexOfAlt(pattern, loc);
 	if( best_loc != -1 ){
@@ -77,7 +81,7 @@ sizediff_t bitap(string text, string pattern, sizediff_t loc)
 		best_loc = text[0..min(loc + pattern.length, text.length)].lastIndexOf(pattern);
 		if( best_loc != -1){
 			score_threshold = min(bitapScore(0, best_loc, loc, pattern), score_threshold);
-		}		
+		}
 	}
 
 	sizediff_t matchmask = 1 << (pattern.length - 1);
@@ -105,7 +109,7 @@ sizediff_t bitap(string text, string pattern, sizediff_t loc)
         bin_max = bin_mid;
         sizediff_t start = max(1, loc - bin_mid + 1);
         sizediff_t finish = min(loc + bin_mid, text.length) + pattern.length;
-		
+
 		sizediff_t[] rd = new sizediff_t[finish + 2];
 		rd[finish + 1] = (1 << d) - 1;
 		for( sizediff_t j = finish; j >= start; j--) {
@@ -149,8 +153,8 @@ sizediff_t bitap(string text, string pattern, sizediff_t loc)
  * @param pattern Pattern being sought.
  * @return Overall score for match (0.0 = good, 1.0 = bad).
  */
-double bitapScore(sizediff_t e, sizediff_t x, sizediff_t loc, string pattern) 
-{
+double bitapScore(Str)(sizediff_t e, sizediff_t x, sizediff_t loc, Str pattern)
+if (isSomeString!Str) {
 	auto accuracy = cast(float)e / pattern.length;
 	sizediff_t proximity = abs(loc - x);
 	if( MATCH_DISTANCE == 0 ){
@@ -164,15 +168,15 @@ double bitapScore(sizediff_t e, sizediff_t x, sizediff_t loc, string pattern)
  * @param pattern The text to encode.
  * @return Hash of character locations.
  */
-int[char] initAlphabet(string pattern)
-{
-	int[char] s;
+int[Unqual!(ElementEncodingType!Str)] initAlphabet(Str)(Str pattern)
+if (isSomeString!Str) {
+	int[Unqual!(ElementEncodingType!Str)] s;
 	foreach( c ; pattern ){
 		if( c !in s )s[c] = 0;
 	}
 	foreach( i, c; pattern ){
 		auto value = s[c] | (1 << (pattern.length - i - 1));
-		s[c] = value; 
+		s[c] = value;
 	}
 	return s;
 }

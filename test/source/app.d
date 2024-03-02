@@ -103,14 +103,14 @@ void testDiffHalfMatch() {
 		HalfMatch hm_cmp, hm;
 		hm.prefix1 = "abc"; hm.suffix1 = "z"; hm.prefix2 ="1234"; hm.suffix2 = "0"; hm.commonMiddle = "56789";
 		assert(halfMatch("abc56789z", "1234567890", hm_cmp));
-		assert(hm == hm_cmp);		
+		assert(hm == hm_cmp);
 	}
 
 	{
 		HalfMatch hm_cmp, hm;
 		hm.prefix1 = "a"; hm.suffix1 = "xyz"; hm.prefix2 ="1"; hm.suffix2 = "7890"; hm.commonMiddle = "23456";
 		assert(halfMatch("a23456xyz", "1234567890", hm_cmp));
-		assert(hm == hm_cmp);		
+		assert(hm == hm_cmp);
 	}
 
   // Multiple Matches.
@@ -118,21 +118,21 @@ void testDiffHalfMatch() {
     HalfMatch hm_cmp, hm;
     hm.prefix1 = "12123"; hm.suffix1 = "123121"; hm.prefix2 ="a"; hm.suffix2 = "z"; hm.commonMiddle = "1234123451234";
     assert(halfMatch("121231234123451234123121", "a1234123451234z", hm_cmp));
-    assert(hm == hm_cmp);   
+    assert(hm == hm_cmp);
   }
 
   {
     HalfMatch hm_cmp, hm;
     hm.prefix1 = ""; hm.suffix1 = "-=-=-=-=-="; hm.prefix2 ="x"; hm.suffix2 = ""; hm.commonMiddle = "x-=-=-=-=-=-=-=";
     assert(halfMatch("x-=-=-=-=-=-=-=-=-=-=-=-=", "xx-=-=-=-=-=-=-=", hm_cmp));
-    assert(hm == hm_cmp);   
+    assert(hm == hm_cmp);
   }
 
   {
     HalfMatch hm_cmp, hm;
     hm.prefix1 = "-=-=-=-=-="; hm.suffix1 = ""; hm.prefix2 = ""; hm.suffix2 = "y"; hm.commonMiddle = "-=-=-=-=-=-=-=y";
     assert(halfMatch("-=-=-=-=-=-=-=-=-=-=-=-=y", "-=-=-=-=-=-=-=yy", hm_cmp));
-    assert(hm == hm_cmp);   
+    assert(hm == hm_cmp);
   }
 }
 
@@ -239,12 +239,12 @@ void testDiffCleanupMerge() {
 
 void testDiffCleanupSemanticLossless() {
   // Slide diffs to match logical boundaries.
-  {  
+  {
     // Null case.
     Diff[] diffs = [];
     cleanupSemanticLossless(diffs);
     assert([] == diffs);
-  } 
+  }
   /*{
     // Blank lines.
     Diff[] diffs = [Diff(Operation.EQUAL, "AAA\r\n\r\nBBB"), Diff(Operation.INSERT, "\r\nDDD\r\n\r\nBBB"), Diff(Operation.EQUAL, "\r\nEEE")];
@@ -563,7 +563,21 @@ void testDiffMain() {
       a ~= "1234567890" ~ to!string(x) ~ "\n";
       b ~= "abcdefghij" ~ to!string(x) ~ "\n";
   }
-  assertEquals(diff_main(a, b, false), diff_main(a, b, true));
+  try {
+      assertEquals(diff_main(a, b, false), diff_main(a, b, true));
+      assert(false, "Expected exception when unique lines exceeds UTF-8 encoding space.");
+  } catch (Exception e) {
+      // ignore
+  }
+
+  // Test using UTF-16 to handle cases when UTF-8 would run out of space.
+  wstring a2 = "";
+  wstring b2 = "";
+  foreach (x; 0 .. 500) {
+      a2 ~= "1234567890" ~ to!wstring(x) ~ "\n";
+      b2 ~= "abcdefghij" ~ to!wstring(x) ~ "\n";
+  }
+  assertEquals(diff_main(a2, b2, false), diff_main(a2, b2, true));
 
   // (Don't) Test null inputs (not needed in D, because null is a valid empty string)
   //assertThrown(diff_main(null, null));
@@ -766,8 +780,8 @@ void testPatchMake() {
   patches = patch_make(text1, text2);
   assertEquals(expectedPatch, patch_toText(patches));
 
-  // Test null inputs.
-  assertThrown(patch_make(null));
+  // (Don't) Test null inputs. (not needed in D because null is a valid empty string)
+  //assertThrown(patch_make!string(null));
 }
 
 void testPatchSplitMax() {

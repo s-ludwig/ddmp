@@ -22,9 +22,11 @@
  */
 module ddmp.util;
 
-import std.string:indexOf;
+import std.traits : isSomeString;
+import std.string : indexOf;
 
-string substr(string str, size_t start, size_t len = size_t.max) {
+Range substr(Range)(Range str, size_t start, size_t len = size_t.max)
+if (isSomeString!Range) {
     auto end = len == size_t.max ? str.length : start + len;
     if (start >= str.length) {
         return "";
@@ -35,7 +37,8 @@ string substr(string str, size_t start, size_t len = size_t.max) {
     return str[start..end];
 }
 
-sizediff_t indexOfAlt(string str, string search, sizediff_t offset=0) {
+sizediff_t indexOfAlt(Range)(Range str, Range search, sizediff_t offset=0)
+if (isSomeString!Range) {
     auto index = str[offset..$].indexOf(search);
     if (index > -1 ) return index + offset;
     return -1;
