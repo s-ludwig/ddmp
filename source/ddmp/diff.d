@@ -710,7 +710,8 @@ DiffT!(Str)[] diff_lineMode(Str)(Str text1, Str text2, SysTime deadline)
         }
         pointer++;
     }
-    diffs.remove(diffs.length - 1);
+
+    diffs = diffs[0 .. $-1];
     return diffs;
 }
 
@@ -721,12 +722,10 @@ DiffT!(Str)[] bisect(Str)(Str text1, Str text2, SysTime deadline)
     auto max_d = (text1_len + text2_len + 1) / 2;
     auto v_offset = max_d;
     auto v_len = 2 * max_d;
-    sizediff_t[] v1;
-    sizediff_t[] v2;
-    for( auto x = 0; x < v_len; x++ ){
-        v1 ~= -1;
-        v2 ~= -1;
-    }
+    auto v1 = new sizediff_t[](v_len);
+    auto v2 = new sizediff_t[](v_len);
+    v1[] = -1;
+    v2[] = -1;
     v1[v_offset + 1] = 0;
     v2[v_offset + 1] = 0;
     auto delta = text1_len - text2_len;
@@ -804,10 +803,11 @@ DiffT!(Str)[] bisect(Str)(Str text1, Str text2, SysTime deadline)
             }
         }
     }
-    DiffT!(Str)[] diffs;
-    diffs ~= DiffT!Str(Operation.DELETE, text1);
-    diffs ~= DiffT!Str(Operation.INSERT, text2);
-    return diffs;
+
+    return [
+        DiffT!Str(Operation.DELETE, text1),
+        DiffT!Str(Operation.INSERT, text2)
+    ];
 }
 
 
