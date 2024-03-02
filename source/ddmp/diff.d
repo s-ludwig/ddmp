@@ -26,7 +26,6 @@ import ddmp.util;
 
 import std.array;
 import std.conv;
-import std.datetime : SysTime, Clock, UTC;
 import std.exception : enforce;
 import std.string : indexOf, endsWith, startsWith;
 import std.uni;
@@ -455,11 +454,11 @@ DiffT!(Str)[] diff_main(Str)(Str text1, Str text2)
 DiffT!(Str)[] diff_main(Str)(Str text1, Str text2, bool checklines)
 {
     // Set a deadline by which time the diff must be complete.
-    SysTime deadline;
+    MonoTime deadline;
     if (diffTimeout <= 0.seconds) {
-        deadline = SysTime.max;
+        deadline = MonoTime.max;
     } else {
-        deadline = Clock.currTime(UTC()) + diffTimeout;
+        deadline = MonoTime.currTime + diffTimeout;
     }
     return diff_main(text1, text2, checklines, deadline);
 }
@@ -477,7 +476,7 @@ DiffT!(Str)[] diff_main(Str)(Str text1, Str text2, bool checklines)
  *     instead.
  * @return List of DiffT objects.
  */
-DiffT!(Str)[] diff_main(Str)(Str text1, Str text2, bool checklines, SysTime deadline)
+DiffT!(Str)[] diff_main(Str)(Str text1, Str text2, bool checklines, MonoTime deadline)
 {
     DiffT!(Str)[] diffs;
     if( text1 == text2 ){
@@ -617,7 +616,7 @@ bool halfMatchI(Str)(Str longtext, Str shorttext, sizediff_t i, out HalfMatchT!S
  * @param deadline Time when the diff should be complete by.
  * @return List of DiffT objects.
  */
-DiffT!(Str)[] computeDiffTs(Str)(Str text1, Str text2, bool checklines, SysTime deadline)
+DiffT!(Str)[] computeDiffTs(Str)(Str text1, Str text2, bool checklines, MonoTime deadline)
 {
     DiffT!(Str)[] diffs;
 
@@ -665,7 +664,7 @@ DiffT!(Str)[] computeDiffTs(Str)(Str text1, Str text2, bool checklines, SysTime 
     return bisect(text1, text2, deadline);
 }
 
-DiffT!(Str)[] diff_lineMode(Str)(Str text1, Str text2, SysTime deadline)
+DiffT!(Str)[] diff_lineMode(Str)(Str text1, Str text2, MonoTime deadline)
 {
     auto b = linesToChars(text1, text2);
 
@@ -715,7 +714,7 @@ DiffT!(Str)[] diff_lineMode(Str)(Str text1, Str text2, SysTime deadline)
     return diffs;
 }
 
-DiffT!(Str)[] bisect(Str)(Str text1, Str text2, SysTime deadline)
+DiffT!(Str)[] bisect(Str)(Str text1, Str text2, MonoTime deadline)
 {
     auto text1_len = text1.length;
     auto text2_len = text2.length;
@@ -736,7 +735,7 @@ DiffT!(Str)[] bisect(Str)(Str text1, Str text2, SysTime deadline)
     auto k2end = 0;
     for( auto d = 0; d < max_d; d++ ){
         // Bail out if deadline is reached.
-        if (Clock.currTime(UTC()) > deadline) {
+        if (MonoTime.currTime - deadline > Duration.zero) {
             break;
         }
 
@@ -811,7 +810,7 @@ DiffT!(Str)[] bisect(Str)(Str text1, Str text2, SysTime deadline)
 }
 
 
-DiffT!(Str)[] bisectSplit(Str)(Str text1, Str text2, sizediff_t x, sizediff_t y, SysTime deadline)
+DiffT!(Str)[] bisectSplit(Str)(Str text1, Str text2, sizediff_t x, sizediff_t y, MonoTime deadline)
 {
     auto text1a = text1[0 .. x];
     auto text2a = text2[0 .. y];
