@@ -644,9 +644,10 @@ unittest {
     assert(isValidSequence("ö"));
     assert(!isValidSequence("ö"[0 .. 1]));
     assert(!isValidSequence("ö"[1 .. 2]));
-    assert(isValidSequence("\U0001FA01"w));
-    assert(!isValidSequence("\U0001FA01"w[0 .. 1]));
-    assert(!isValidSequence("\U0001FA01"w[1 .. 2]));
+    wstring test = "\U0001FA01"w;
+    assert(isValidSequence(test));
+    assert(!isValidSequence(test[0 .. 1]));
+    assert(!isValidSequence(test[1 .. 2]));
 }
 
 bool halfMatchI(Str)(Str longtext, Str shorttext, sizediff_t i, out HalfMatchT!Str hm){
