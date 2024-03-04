@@ -557,8 +557,8 @@ bool halfMatch(Str)(Str text1, Str text2, out HalfMatchT!Str halfmatch){
     if( longtext.length < 4 || shorttext.length * 2 < longtext.length ) return false; //pointless
     HalfMatchT!Str hm1;
     HalfMatchT!Str hm2;
-    auto is_hm1 = halfMatchI(longtext, shorttext, (longtext.length + 3) / 4, hm1);
-    auto is_hm2 = halfMatchI(longtext, shorttext, (longtext.length + 1) / 2, hm2);
+    auto is_hm1 = halfMatchI(longtext, shorttext, getValidIndexAt(longtext, (longtext.length + 3) / 4), hm1);
+    auto is_hm2 = halfMatchI(longtext, shorttext, getValidIndexAt(longtext, (longtext.length + 1) / 2), hm2);
     HalfMatchT!Str hm;
     if( !is_hm1 && !is_hm2 ){
         return false;
@@ -582,6 +582,72 @@ bool halfMatch(Str)(Str text1, Str text2, out HalfMatchT!Str halfmatch){
     return true;
 }
 
+private size_t getValidIndexAt(Str)(Str text, size_t index)
+    if (isSomeString!Str)
+{
+    if (index == text.length)
+        return index;
+
+    static if (typeof(Str.init[0]).sizeof == 4) return index;
+    else {
+        static if (typeof(Str.init[0]).sizeof == 1)
+            enum maxDist = 3;
+        else
+            enum maxDist = 1;
+
+        foreach (i; 0 .. min(maxDist, index)+1)
+            if (isValidSequence(text[index - i .. $]))
+                return index - i;
+
+        // found no valid sequence, resort to the input index, because in this
+        // case the input text was already malformed and there is nothing
+        // constructive that we can do about that
+        return index;
+    }
+}
+
+unittest {
+    assert(getValidIndexAt("foo", 0) == 0);
+    assert(getValidIndexAt("foo", 1) == 1);
+    assert(getValidIndexAt("foo", 3) == 3);
+    assert(getValidIndexAt("föö", 1) == 1);
+    assert(getValidIndexAt("föö", 2) == 1);
+    assert(getValidIndexAt("föö", 3) == 3);
+    assert(getValidIndexAt("föö", 4) == 3);
+    assert(getValidIndexAt("föö", 5) == 5);
+    assert(getValidIndexAt("\U0001FA01X", 0) == 0);
+    assert(getValidIndexAt("\U0001FA01X", 1) == 0);
+    assert(getValidIndexAt("\U0001FA01X", 2) == 0);
+    assert(getValidIndexAt("\U0001FA01X", 3) == 0);
+    assert(getValidIndexAt("\U0001FA01X", 4) == 4);
+    assert(getValidIndexAt("\U0001FA01X"w, 0) == 0);
+    assert(getValidIndexAt("\U0001FA01X"w, 1) == 0);
+    assert(getValidIndexAt("\U0001FA01X"w, 2) == 2);
+    assert(getValidIndexAt("\U0001FA01"[0 .. 3], 1) == 1); // invalid input string
+}
+
+private bool isValidSequence(Str)(Str str)
+if (isSomeString!Str) {
+    import std.utf : stride, validate;
+    if (!str.length) return true;
+    try {
+        auto n = stride(str);
+        if (n > str.length) return false;
+        validate(str[0 .. n]);
+    } catch (Exception e) return false;
+    return true;
+}
+
+unittest {
+    assert(isValidSequence("foo"));
+    assert(isValidSequence(""));
+    assert(isValidSequence("ö"));
+    assert(!isValidSequence("ö"[0 .. 1]));
+    assert(!isValidSequence("ö"[1 .. 2]));
+    assert(isValidSequence("\U0001FA01"w));
+    assert(!isValidSequence("\U0001FA01"w[0 .. 1]));
+    assert(!isValidSequence("\U0001FA01"w[1 .. 2]));
+}
 
 bool halfMatchI(Str)(Str longtext, Str shorttext, sizediff_t i, out HalfMatchT!Str hm){
     auto seed = longtext.substr(i, longtext.length / 4);
