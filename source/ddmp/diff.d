@@ -362,6 +362,7 @@ private size_t utfStride(Str)(Str text)
     //       parts of the diff algorithm are UTF correct, yet. For this
     //       reason, 1 is returned, so that the rest of the algorithm can
     //       continue to work as usual
+    assert(text.length > 0);
     try return text.stride;
     catch (UTFException e) return 1;
 }
@@ -373,6 +374,7 @@ private size_t utfStrideBack(Str)(Str text)
     //       parts of the diff algorithm are UTF correct, yet. For this
     //       reason, 1 is returned, so that the rest of the algorithm can
     //       continue to work as usual
+    assert(text.length > 0);
     try return text.strideBack;
     catch (UTFException e) return 1;
 }
