@@ -562,12 +562,7 @@ void testDiffMain() {
       a ~= "1234567890" ~ to!string(x) ~ "\n";
       b ~= "abcdefghij" ~ to!string(x) ~ "\n";
   }
-  try {
-      assertEquals(diff_main(a, b, false), diff_main(a, b, true));
-      assert(false, "Expected exception when unique lines exceeds UTF-8 encoding space.");
-  } catch (Exception e) {
-      // ignore
-  }
+  assertEquals(diff_main(a, b, false), diff_main(a, b, true));
 
   // Test using UTF-16 to handle cases when UTF-8 would run out of space.
   wstring a2 = "";

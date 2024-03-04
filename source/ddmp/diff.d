@@ -215,8 +215,8 @@ DiffT!(Str)[] fromDelta(Str)(Str text1, Str delta)
 alias LinesToCharsResult = LinesToCharsResultT!string;
 
 struct LinesToCharsResultT(Str) {
-    Str text1;
-    Str text2;
+    wstring text1;
+    wstring text2;
     Str[] uniqueStrings;
     bool opEquals()(auto ref const LinesToCharsResultT!Str other) const {
         return text1 == other.text1 &&
@@ -241,19 +241,15 @@ LinesToCharsResultT!Str linesToChars(Str)(Str text1, Str text2) {
  * Finally, it returns a string with each UTF-16 character representing the unique line index for
  * each line of text in the original block of text.
  */
-Str linesToCharsMunge(Str)(Str text, ref Str[] lines, ref size_t[Str] linehash)
+wstring linesToCharsMunge(Str)(Str text, ref Str[] lines, ref size_t[Str] linehash)
 if (isSomeString!Str) {
     sizediff_t lineStart = 0;
     sizediff_t lineEnd = -1;
     Str line;
-    static if (is(ElementEncodingType!Str : char)) {
-      size_t lineLimit = 0x80;
-    } else {
-      size_t lineLimit = 0xD800;
-    }
+    enum lineLimit = 0xD800;
     enforce(lines.length < lineLimit, "Algorithm unique line limit exceeded for "
-        ~ Str.stringof ~ ". string may use 127 lines, wstring/dstring may use 55295 lines.");
-    auto chars = appender!Str();
+        ~ Str.stringof ~ ". The maximum amount of lines supported is 55295 lines.");
+    auto chars = appender!wstring();
     while( lineEnd+1 < text.length ){
         lineEnd = text.indexOfAlt("\n".to!Str, lineStart);
         if( lineEnd == -1 ) lineEnd = text.length - 1;
@@ -261,13 +257,13 @@ if (isSomeString!Str) {
         lineStart = lineEnd + 1;
 
         if (auto pv = line in linehash) {
-            chars ~= cast(ElementEncodingType!Str)*pv;
+            chars ~= cast(wchar)*pv;
         } else {
             lines ~= line;
             linehash[line] = lines.length - 1;
             // Using UTF-16, only values up to 0xD7FF (55295) can be represented before
             // encoding errors or multi-byte encodings are applied.
-            chars ~= cast(ElementEncodingType!Str)(lines.length -1);
+            chars ~= cast(wchar)(lines.length -1);
         }
     }
     return chars[];
@@ -277,15 +273,19 @@ if (isSomeString!Str) {
  * Reverses the process of [linesToChars] by interpretting each UTF-16 character as an index into
  * linesArray, and assembles the indexed lines into a block of text.
  */
-void charsToLines(Str)(DiffT!Str[] diffs, Str[] lineArray)
-if (isSomeString!Str) {
-    foreach (ref d; diffs) {
+DiffT!Str[] charsToLines(Str)(DiffT!wstring[] diffs, Str[] lineArray)
+    if (isSomeString!Str)
+{
+    auto ret = new DiffT!Str[](diffs.length);
+    foreach (i, ref d; diffs) {
+        ret[i].operation = d.operation;
         auto str = appender!Str();
-        foreach (ElementEncodingType!Str ch; d.text) {
+        foreach (wchar ch; d.text) {
             str.put(lineArray[ch]);
         }
-        d.text = str[];
+        ret[i].text = str[];
     }
+    return ret;
 }
 
 size_t commonPrefix(Str)(Str text1, Str text2)
@@ -744,9 +744,9 @@ DiffT!(Str)[] diff_lineMode(Str)(Str text1, Str text2, MonoTime deadline)
 {
     auto b = linesToChars(text1, text2);
 
-    auto diffs = diff_main(b.text1, b.text2, false, deadline);
+    auto ldiffs = diff_main(b.text1, b.text2, false, deadline);
 
-    charsToLines(diffs, b.uniqueStrings);
+    auto diffs = charsToLines(ldiffs, b.uniqueStrings);
     cleanupSemantic(diffs);
 
     diffs ~= DiffT!Str(Operation.EQUAL, "");
