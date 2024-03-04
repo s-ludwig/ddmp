@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright 2008 Google Inc. All Rights Reserved.
  * Copyright 2013-2014 Jan Krüger. All Rights Reserved.
  * Author: fraser@google.com (Neil Fraser)
@@ -26,12 +26,11 @@ import ddmp.util;
 
 import std.array;
 import std.conv;
-import std.datetime : SysTime, Clock, UTC;
 import std.exception : enforce;
 import std.string : indexOf, endsWith, startsWith;
 import std.uni;
 import std.utf : toUTF16, toUTF8;
-import std.range : ElementEncodingType;
+import std.range : ElementEncodingType, walkLength;
 import std.regex;
 import std.algorithm : min, max;
 import std.digest.sha;
@@ -216,8 +215,8 @@ DiffT!(Str)[] fromDelta(Str)(Str text1, Str delta)
 alias LinesToCharsResult = LinesToCharsResultT!string;
 
 struct LinesToCharsResultT(Str) {
-    Str text1;
-    Str text2;
+    wstring text1;
+    wstring text2;
     Str[] uniqueStrings;
     bool opEquals()(auto ref const LinesToCharsResultT!Str other) const {
         return text1 == other.text1 &&
@@ -242,19 +241,15 @@ LinesToCharsResultT!Str linesToChars(Str)(Str text1, Str text2) {
  * Finally, it returns a string with each UTF-16 character representing the unique line index for
  * each line of text in the original block of text.
  */
-Str linesToCharsMunge(Str)(Str text, ref Str[] lines, ref size_t[Str] linehash)
+wstring linesToCharsMunge(Str)(Str text, ref Str[] lines, ref size_t[Str] linehash)
 if (isSomeString!Str) {
     sizediff_t lineStart = 0;
     sizediff_t lineEnd = -1;
     Str line;
-    static if (is(ElementEncodingType!Str : char)) {
-      size_t lineLimit = 0x80;
-    } else {
-      size_t lineLimit = 0xD800;
-    }
+    enum lineLimit = 0xD800;
     enforce(lines.length < lineLimit, "Algorithm unique line limit exceeded for "
-        ~ Str.stringof ~ ". string may use 127 lines, wstring/dstring may use 55295 lines.");
-    auto chars = appender!Str();
+        ~ Str.stringof ~ ". The maximum amount of lines supported is 55295 lines.");
+    auto chars = appender!wstring();
     while( lineEnd+1 < text.length ){
         lineEnd = text.indexOfAlt("\n".to!Str, lineStart);
         if( lineEnd == -1 ) lineEnd = text.length - 1;
@@ -262,13 +257,13 @@ if (isSomeString!Str) {
         lineStart = lineEnd + 1;
 
         if (auto pv = line in linehash) {
-            chars ~= cast(ElementEncodingType!Str)*pv;
+            chars ~= cast(wchar)*pv;
         } else {
             lines ~= line;
             linehash[line] = lines.length - 1;
             // Using UTF-16, only values up to 0xD7FF (55295) can be represented before
             // encoding errors or multi-byte encodings are applied.
-            chars ~= cast(ElementEncodingType!Str)(lines.length -1);
+            chars ~= cast(wchar)(lines.length -1);
         }
     }
     return chars[];
@@ -278,35 +273,68 @@ if (isSomeString!Str) {
  * Reverses the process of [linesToChars] by interpretting each UTF-16 character as an index into
  * linesArray, and assembles the indexed lines into a block of text.
  */
-void charsToLines(Str)(DiffT!Str[] diffs, Str[] lineArray)
-if (isSomeString!Str) {
-    foreach (ref d; diffs) {
+DiffT!Str[] charsToLines(Str)(DiffT!wstring[] diffs, Str[] lineArray)
+    if (isSomeString!Str)
+{
+    auto ret = new DiffT!Str[](diffs.length);
+    foreach (i, ref d; diffs) {
+        ret[i].operation = d.operation;
         auto str = appender!Str();
-        foreach (ElementEncodingType!Str ch; d.text) {
+        foreach (wchar ch; d.text) {
             str.put(lineArray[ch]);
         }
-        d.text = str[];
+        ret[i].text = str[];
     }
+    return ret;
 }
 
-/// The character offset should be aware of unicode, otherwise, the common prefix can end up
-/// splitting a single character's bytes.
 size_t commonPrefix(Str)(Str text1, Str text2)
-if (isSomeString!Str) {
-    auto n = min(text1.length, text2.length);
-    foreach (i; 0 .. n)
-        if (text1[i] != text2[i])
-            return i;
-    return n;
+{
+    size_t ret = 0;
+    while (text1.length && text2.length) {
+        size_t n = text1.utfStride;
+        if (text2.length < n || text1[0 .. n] != text2[0 .. n])
+            return ret;
+        text1 = text1[n .. $];
+        text2 = text2[n .. $];
+        ret += n;
+    }
+    return ret;
+}
+
+unittest {
+    assert(commonPrefix("abcd", "abdd") == 2);
+    assert(commonPrefix("abäd", "abäe") == 4);
+    assert(commonPrefix("abä", "abö") == 2);
+    assert(commonPrefix("March", "März") == 1);
+    assert(commonPrefix("Atü", "Atu") == 2);
 }
 
 size_t commonSuffix(Str)(Str text1, Str text2)
-if (isSomeString!Str) {
-    auto n = min(text1.length, text2.length);
-    foreach (i; 1 .. n+1)
-        if (text1[$-i] != text2[$-i])
-            return i-1;
-    return n;
+{
+    size_t ret = 0;
+    while (text1.length && text2.length) {
+        size_t n = text1.utfStrideBack;
+        if (text2.length < n || text1[$-n .. $] != text2[$-n .. $])
+            return ret;
+        text1 = text1[0 .. $-n];
+        text2 = text2[0 .. $-n];
+        ret += n;
+    }
+    return ret;
+}
+
+unittest {
+    assert(commonSuffix("bbcd", "abcd") == 3);
+    assert(commonSuffix("acäd", "abäd") == 3);
+    assert(commonSuffix("äbc", "öbc") == 2);
+    assert(commonSuffix("äbc", "öbc") == 2);
+    assert(commonSuffix("über", "uber") == 3);
+    assert(commonSuffix("uber", "über") == 3);
+    // NOTE: the following two cases are equivalent
+    assert(commonSuffix("€", "À") == 0);
+    assert(commonSuffix(x"C280", x"C380") == 0);
+    assert(commonSuffix("€a", "Àa") == 1);
 }
 
 /**
@@ -316,44 +344,50 @@ if (isSomeString!Str) {
 * @return The number of characters common to the end of the first
 *     string and the start of the second string.
 */
-size_t commonOverlap(Str)(Str text1, Str text2)
-if (isSomeString!Str) {
-    // Cache the text lengths to prevent multiple calls.
-    auto text1_length = text1.length;
-    auto text2_length = text2.length;
-    // Eliminate the null case.
-    if (text1_length == 0 || text2_length == 0) return 0;
+size_t commonOverlap(Str)(Str text1, Str text2) {
+    if (!text2.length)
+        return 0;
 
-    // Truncate the longer string.
-    if (text1_length > text2_length) {
-        text1 = text1[$ - text2_length .. $];
-    } else if (text1_length < text2_length) {
-        text2 = text2[0 .. text1_length];
+    while (text1.length) {
+        size_t n = text1.utfStride;
+        if (text1.length <= text2.length && text2[0 .. text1.length] == text1)
+            return text1.length;
+        text1 = text1[n .. $];
     }
-    auto text_length = min(text1_length, text2_length);
-    // Quick check for the worst case.
-    if (text1 == text2) {
-        return text_length;
-    }
-
-    // Start by looking for a single character match
-    // and increase length until no match is found.
-    // Performance analysis: http://neil.fraser.name/news/2010/11/04/
-    int best = 0;
-    int length = 1;
-    while (true) {
-        Str pattern = text1[text_length - length .. $];
-        auto found = text2.indexOf(pattern);
-        if (found == -1) {
-            return best;
-        }
-        length += found;
-        if (found == 0 || text1[text_length - length .. $] == text2[0 .. length]) {
-            best = length;
-            length++;
-        }
-    }
+    return 0;
 }
+
+unittest {
+    assert(commonOverlap("abcd", "efgh") == 0);
+    assert(commonOverlap("abcd", "cdef") == 2);
+    assert(commonOverlap("abcä", "ädef") == 2);
+}
+
+private size_t utfStride(Str)(Str text)
+{
+    import std.utf : UTFException, stride;
+    // NOTE: We may get an invalid UTF encoding as input, because not all
+    //       parts of the diff algorithm are UTF correct, yet. For this
+    //       reason, 1 is returned, so that the rest of the algorithm can
+    //       continue to work as usual
+    assert(text.length > 0);
+    try return text.stride;
+    catch (UTFException e) return 1;
+}
+
+private size_t utfStrideBack(Str)(Str text)
+{
+    import std.utf : UTFException, strideBack;
+    // NOTE: We may get an invalid UTF encoding as input, because not all
+    //       parts of the diff algorithm are UTF correct, yet. For this
+    //       reason, 1 is returned, so that the rest of the algorithm can
+    //       continue to work as usual
+    assert(text.length > 0);
+    try return text.strideBack;
+    catch (UTFException e) return 1;
+}
+
+
 
 /**-
 * The data structure representing a diff is a List of DiffT objects:
@@ -430,11 +464,11 @@ DiffT!(Str)[] diff_main(Str)(Str text1, Str text2)
 DiffT!(Str)[] diff_main(Str)(Str text1, Str text2, bool checklines)
 {
     // Set a deadline by which time the diff must be complete.
-    SysTime deadline;
+    MonoTime deadline;
     if (diffTimeout <= 0.seconds) {
-        deadline = SysTime.max;
+        deadline = MonoTime.max;
     } else {
-        deadline = Clock.currTime(UTC()) + diffTimeout;
+        deadline = MonoTime.currTime + diffTimeout;
     }
     return diff_main(text1, text2, checklines, deadline);
 }
@@ -452,7 +486,7 @@ DiffT!(Str)[] diff_main(Str)(Str text1, Str text2, bool checklines)
  *     instead.
  * @return List of DiffT objects.
  */
-DiffT!(Str)[] diff_main(Str)(Str text1, Str text2, bool checklines, SysTime deadline)
+DiffT!(Str)[] diff_main(Str)(Str text1, Str text2, bool checklines, MonoTime deadline)
 {
     DiffT!(Str)[] diffs;
     if( text1 == text2 ){
@@ -523,8 +557,8 @@ bool halfMatch(Str)(Str text1, Str text2, out HalfMatchT!Str halfmatch){
     if( longtext.length < 4 || shorttext.length * 2 < longtext.length ) return false; //pointless
     HalfMatchT!Str hm1;
     HalfMatchT!Str hm2;
-    auto is_hm1 = halfMatchI(longtext, shorttext, (longtext.length + 3) / 4, hm1);
-    auto is_hm2 = halfMatchI(longtext, shorttext, (longtext.length + 1) / 2, hm2);
+    auto is_hm1 = halfMatchI(longtext, shorttext, getValidIndexAt(longtext, (longtext.length + 3) / 4), hm1);
+    auto is_hm2 = halfMatchI(longtext, shorttext, getValidIndexAt(longtext, (longtext.length + 1) / 2), hm2);
     HalfMatchT!Str hm;
     if( !is_hm1 && !is_hm2 ){
         return false;
@@ -548,6 +582,73 @@ bool halfMatch(Str)(Str text1, Str text2, out HalfMatchT!Str halfmatch){
     return true;
 }
 
+private size_t getValidIndexAt(Str)(Str text, size_t index)
+    if (isSomeString!Str)
+{
+    if (index == text.length)
+        return index;
+
+    static if (typeof(Str.init[0]).sizeof == 4) return index;
+    else {
+        static if (typeof(Str.init[0]).sizeof == 1)
+            enum maxDist = 3;
+        else
+            enum maxDist = 1;
+
+        foreach (i; 0 .. min(maxDist, index)+1)
+            if (isValidSequence(text[index - i .. $]))
+                return index - i;
+
+        // found no valid sequence, resort to the input index, because in this
+        // case the input text was already malformed and there is nothing
+        // constructive that we can do about that
+        return index;
+    }
+}
+
+unittest {
+    assert(getValidIndexAt("foo", 0) == 0);
+    assert(getValidIndexAt("foo", 1) == 1);
+    assert(getValidIndexAt("foo", 3) == 3);
+    assert(getValidIndexAt("föö", 1) == 1);
+    assert(getValidIndexAt("föö", 2) == 1);
+    assert(getValidIndexAt("föö", 3) == 3);
+    assert(getValidIndexAt("föö", 4) == 3);
+    assert(getValidIndexAt("föö", 5) == 5);
+    assert(getValidIndexAt("\U0001FA01X", 0) == 0);
+    assert(getValidIndexAt("\U0001FA01X", 1) == 0);
+    assert(getValidIndexAt("\U0001FA01X", 2) == 0);
+    assert(getValidIndexAt("\U0001FA01X", 3) == 0);
+    assert(getValidIndexAt("\U0001FA01X", 4) == 4);
+    assert(getValidIndexAt("\U0001FA01X"w, 0) == 0);
+    assert(getValidIndexAt("\U0001FA01X"w, 1) == 0);
+    assert(getValidIndexAt("\U0001FA01X"w, 2) == 2);
+    assert(getValidIndexAt("\U0001FA01"[0 .. 3], 1) == 1); // invalid input string
+}
+
+private bool isValidSequence(Str)(Str str)
+if (isSomeString!Str) {
+    import std.utf : stride, validate;
+    if (!str.length) return true;
+    try {
+        auto n = stride(str);
+        if (n > str.length) return false;
+        validate(str[0 .. n]);
+    } catch (Exception e) return false;
+    return true;
+}
+
+unittest {
+    assert(isValidSequence("foo"));
+    assert(isValidSequence(""));
+    assert(isValidSequence("ö"));
+    assert(!isValidSequence("ö"[0 .. 1]));
+    assert(!isValidSequence("ö"[1 .. 2]));
+    wstring test = "\U0001FA01"w;
+    assert(isValidSequence(test));
+    assert(!isValidSequence(test[0 .. 1]));
+    assert(!isValidSequence(test[1 .. 2]));
+}
 
 bool halfMatchI(Str)(Str longtext, Str shorttext, sizediff_t i, out HalfMatchT!Str hm){
     auto seed = longtext.substr(i, longtext.length / 4);
@@ -592,8 +693,11 @@ bool halfMatchI(Str)(Str longtext, Str shorttext, sizediff_t i, out HalfMatchT!S
  * @param deadline Time when the diff should be complete by.
  * @return List of DiffT objects.
  */
-DiffT!(Str)[] computeDiffTs(Str)(Str text1, Str text2, bool checklines, SysTime deadline)
+DiffT!(Str)[] computeDiffTs(Str)(Str text1, Str text2, bool checklines, MonoTime deadline)
 {
+    import std.algorithm.searching : all;
+    import std.utf : byCodeUnit;
+
     DiffT!(Str)[] diffs;
 
     if( text1.length == 0 ){
@@ -616,7 +720,7 @@ DiffT!(Str)[] computeDiffTs(Str)(Str text1, Str text2, bool checklines, SysTime 
         return diffs;
     }
 
-    if( shorttext.length == 1 ){
+    if (shorttext.walkLength(2) == 1) {
         diffs ~= DiffT!Str(Operation.DELETE, text1);
         diffs ~= DiffT!Str(Operation.INSERT, text2);
         return diffs;
@@ -637,16 +741,35 @@ DiffT!(Str)[] computeDiffTs(Str)(Str text1, Str text2, bool checklines, SysTime 
         return diff_lineMode(text1, text2, deadline);
     }
 
-    return bisect(text1, text2, deadline);
+    static if (ElementEncodingType!Str.sizeof == 1) {
+        if (text1.byCodeUnit.all!(ch => ch < 128) && text2.byCodeUnit.all!(ch => ch < 128))
+            return bisect(text1, text2, deadline);
+        return bisect(text1.to!dstring, text2.to!dstring, deadline).convertDiffs!Str;
+    } else static if (ElementEncodingType!Str.sizeof == 2) {
+        if (text1.byCodeUnit.all!(ch => !isSurrogate(ch)) && text2.byCodeUnit.all!(ch => !isSurrogate(ch)))
+            return bisect(text1, text2, deadline);
+        return bisect(text1.to!dstring, text2.to!dstring, deadline).convertDiffs!Str;
+    } else {
+        return bisect(text1, text2, deadline);
+    }
 }
 
-DiffT!(Str)[] diff_lineMode(Str)(Str text1, Str text2, SysTime deadline)
+private DiffT!Str[] convertDiffs(Str)(DiffT!dstring[] diffs)
+{
+    import std.algorithm : map;
+    import std.array : array;
+    return diffs
+        .map!(diff => DiffT!Str(diff.operation, diff.text.to!Str))
+        .array;
+}
+
+DiffT!(Str)[] diff_lineMode(Str)(Str text1, Str text2, MonoTime deadline)
 {
     auto b = linesToChars(text1, text2);
 
-    auto diffs = diff_main(b.text1, b.text2, false, deadline);
+    auto ldiffs = diff_main(b.text1, b.text2, false, deadline);
 
-    charsToLines(diffs, b.uniqueStrings);
+    auto diffs = charsToLines(ldiffs, b.uniqueStrings);
     cleanupSemantic(diffs);
 
     diffs ~= DiffT!Str(Operation.EQUAL, "");
@@ -685,23 +808,22 @@ DiffT!(Str)[] diff_lineMode(Str)(Str text1, Str text2, SysTime deadline)
         }
         pointer++;
     }
-    diffs.remove(diffs.length - 1);
+
+    diffs = diffs[0 .. $-1];
     return diffs;
 }
 
-DiffT!(Str)[] bisect(Str)(Str text1, Str text2, SysTime deadline)
+DiffT!(Str)[] bisect(Str)(Str text1, Str text2, MonoTime deadline)
 {
     auto text1_len = text1.length;
     auto text2_len = text2.length;
     auto max_d = (text1_len + text2_len + 1) / 2;
     auto v_offset = max_d;
     auto v_len = 2 * max_d;
-    sizediff_t[] v1;
-    sizediff_t[] v2;
-    for( auto x = 0; x < v_len; x++ ){
-        v1 ~= -1;
-        v2 ~= -1;
-    }
+    auto v1 = new sizediff_t[](v_len);
+    auto v2 = new sizediff_t[](v_len);
+    v1[] = -1;
+    v2[] = -1;
     v1[v_offset + 1] = 0;
     v2[v_offset + 1] = 0;
     auto delta = text1_len - text2_len;
@@ -712,7 +834,7 @@ DiffT!(Str)[] bisect(Str)(Str text1, Str text2, SysTime deadline)
     auto k2end = 0;
     for( auto d = 0; d < max_d; d++ ){
         // Bail out if deadline is reached.
-        if (Clock.currTime(UTC()) > deadline) {
+        if (MonoTime.currTime - deadline > Duration.zero) {
             break;
         }
 
@@ -725,9 +847,10 @@ DiffT!(Str)[] bisect(Str)(Str text1, Str text2, SysTime deadline)
                 x1 = v1[k1_offset - 1] + 1;
             }
             auto y1 = x1 - k1;
-            while( x1 < text1_len && y1 < text2_len && text1[x1] == text2[y1] ){
-                x1++;
-                y1++;
+            if (x1 < text1_len && y1 < text2_len) {
+                size_t cp = commonPrefix(text1[x1 .. $], text2[y1 .. $]);
+                x1 += cp;
+                y1 += cp;
             }
             v1[k1_offset] = x1;
             if( x1 > text1_len) {
@@ -751,11 +874,10 @@ DiffT!(Str)[] bisect(Str)(Str text1, Str text2, SysTime deadline)
                 x2 = v2[k2_offset - 1] + 1;
             }
             auto y2 = x2 - k2;
-            while( x2 < text1_len && y2 < text2_len
-                    && text1[text1_len - x2 - 1]
-                    == text2[text2_len - y2 - 1] ){
-                x2++;
-                y2++;
+            if (x2 < text1_len && y2 < text2_len) {
+                size_t cs = commonSuffix(text1[0 .. $-x2], text2[0 .. $-y2]);
+                x2 += cs;
+                y2 += cs;
             }
             v2[k2_offset] = x2;
             if (x2 > text1_len) {
@@ -779,14 +901,15 @@ DiffT!(Str)[] bisect(Str)(Str text1, Str text2, SysTime deadline)
             }
         }
     }
-    DiffT!(Str)[] diffs;
-    diffs ~= DiffT!Str(Operation.DELETE, text1);
-    diffs ~= DiffT!Str(Operation.INSERT, text2);
-    return diffs;
+
+    return [
+        DiffT!Str(Operation.DELETE, text1),
+        DiffT!Str(Operation.INSERT, text2)
+    ];
 }
 
 
-DiffT!(Str)[] bisectSplit(Str)(Str text1, Str text2, sizediff_t x, sizediff_t y, SysTime deadline)
+DiffT!(Str)[] bisectSplit(Str)(Str text1, Str text2, sizediff_t x, sizediff_t y, MonoTime deadline)
 {
     auto text1a = text1[0 .. x];
     auto text2a = text2[0 .. y];

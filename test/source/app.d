@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright 2008 Google Inc. All Rights Reserved.
  * Copyright 2013-2014 Jan Krüger. All Rights Reserved.
  * Author: fraser@google.com (Neil Fraser)
@@ -27,7 +27,6 @@ import ddmp.patch;
 import ddmp.match;
 
 import core.time;
-import std.datetime;
 import std.exception;
 import std.stdio;
 
@@ -466,10 +465,10 @@ void testDiffBisect() {
   // Since the resulting diff hasn't been normalized, it would be ok if
   // the insertion and deletion pairs are swapped.
   // If the order changes, tweak this test as required.
-  assertEquals([Diff(Operation.DELETE, "c"), Diff(Operation.INSERT, "m"), Diff(Operation.EQUAL, "a"), Diff(Operation.DELETE, "t"), Diff(Operation.INSERT, "p")], bisect(a, b, SysTime.max));
+  assertEquals([Diff(Operation.DELETE, "c"), Diff(Operation.INSERT, "m"), Diff(Operation.EQUAL, "a"), Diff(Operation.DELETE, "t"), Diff(Operation.INSERT, "p")], bisect(a, b, MonoTime.max));
 
   // Timeout.
-  assertEquals([Diff(Operation.DELETE, "cat"), Diff(Operation.INSERT, "map")], bisect(a, b, SysTime(0)));
+  assertEquals([Diff(Operation.DELETE, "cat"), Diff(Operation.INSERT, "map")], bisect(a, b, MonoTime(0)));
 }
 
 void testDiffMain() {
@@ -521,9 +520,9 @@ void testDiffMain() {
     a = a ~ a;
     b = b ~ b;
   }
-  auto startTime = Clock.currTime(UTC());
+  auto startTime = MonoTime.currTime;
   diff_main(a, b);
-  auto endTime = Clock.currTime(UTC());
+  auto endTime = MonoTime.currTime;
   // Test that we took at least the timeout period.
   assert(diffTimeout <= endTime - startTime);
   // Test that we didn't take forever (be forgiving).
@@ -563,12 +562,7 @@ void testDiffMain() {
       a ~= "1234567890" ~ to!string(x) ~ "\n";
       b ~= "abcdefghij" ~ to!string(x) ~ "\n";
   }
-  try {
-      assertEquals(diff_main(a, b, false), diff_main(a, b, true));
-      assert(false, "Expected exception when unique lines exceeds UTF-8 encoding space.");
-  } catch (Exception e) {
-      // ignore
-  }
+  assertEquals(diff_main(a, b, false), diff_main(a, b, true));
 
   // Test using UTF-16 to handle cases when UTF-8 would run out of space.
   wstring a2 = "";
@@ -578,6 +572,10 @@ void testDiffMain() {
       b2 ~= "abcdefghij" ~ to!wstring(x) ~ "\n";
   }
   assertEquals(diff_main(a2, b2, false), diff_main(a2, b2, true));
+
+  // Ensure UTF sequences do not get split up in diffs
+  assertEquals([Diff(Operation.EQUAL, "a"), Diff(Operation.DELETE, "€"), Diff(Operation.INSERT, "À"), Diff(Operation.EQUAL, "b")],
+    diff_main("a€b", "aÀb", false));
 
   // (Don't) Test null inputs (not needed in D, because null is a valid empty string)
   //assertThrown(diff_main(null, null));
