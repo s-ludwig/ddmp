@@ -30,7 +30,7 @@ import std.exception : enforce;
 import std.string : indexOf, endsWith, startsWith;
 import std.uni;
 import std.utf : toUTF16, toUTF8;
-import std.range : ElementEncodingType;
+import std.range : ElementEncodingType, walkLength;
 import std.regex;
 import std.algorithm : min, max;
 import std.digest.sha;
@@ -694,6 +694,9 @@ bool halfMatchI(Str)(Str longtext, Str shorttext, sizediff_t i, out HalfMatchT!S
  */
 DiffT!(Str)[] computeDiffTs(Str)(Str text1, Str text2, bool checklines, MonoTime deadline)
 {
+    import std.algorithm.searching : all;
+    import std.utf : byCodeUnit;
+
     DiffT!(Str)[] diffs;
 
     if( text1.length == 0 ){
@@ -716,7 +719,7 @@ DiffT!(Str)[] computeDiffTs(Str)(Str text1, Str text2, bool checklines, MonoTime
         return diffs;
     }
 
-    if( shorttext.length == 1 ){
+    if (shorttext.walkLength(2) == 1) {
         diffs ~= DiffT!Str(Operation.DELETE, text1);
         diffs ~= DiffT!Str(Operation.INSERT, text2);
         return diffs;
@@ -737,7 +740,26 @@ DiffT!(Str)[] computeDiffTs(Str)(Str text1, Str text2, bool checklines, MonoTime
         return diff_lineMode(text1, text2, deadline);
     }
 
-    return bisect(text1, text2, deadline);
+    static if (ElementEncodingType!Str.sizeof == 1) {
+        if (text1.byCodeUnit.all!(ch => ch < 128) && text2.byCodeUnit.all!(ch => ch < 128))
+            return bisect(text1, text2, deadline);
+        return bisect(text1.to!dstring, text2.to!dstring, deadline).convertDiffs!Str;
+    } else static if (ElementEncodingType!Str.sizeof == 2) {
+        if (text1.byCodeUnit.all!(ch => !isSurrogate(ch)) && text2.byCodeUnit.all!(ch => !isSurrogate(ch)))
+            return bisect(text1, text2, deadline);
+        return bisect(text1.to!dstring, text2.to!dstring, deadline).convertDiffs!Str;
+    } else {
+        return bisect(text1, text2, deadline);
+    }
+}
+
+private DiffT!Str[] convertDiffs(Str)(DiffT!dstring[] diffs)
+{
+    import std.algorithm : map;
+    import std.array : array;
+    return diffs
+        .map!(diff => DiffT!Str(diff.operation, diff.text.to!Str))
+        .array;
 }
 
 DiffT!(Str)[] diff_lineMode(Str)(Str text1, Str text2, MonoTime deadline)

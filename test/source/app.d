@@ -573,6 +573,10 @@ void testDiffMain() {
   }
   assertEquals(diff_main(a2, b2, false), diff_main(a2, b2, true));
 
+  // Ensure UTF sequences do not get split up in diffs
+  assertEquals([Diff(Operation.EQUAL, "a"), Diff(Operation.DELETE, "€"), Diff(Operation.INSERT, "À"), Diff(Operation.EQUAL, "b")],
+    diff_main("a€b", "aÀb", false));
+
   // (Don't) Test null inputs (not needed in D, because null is a valid empty string)
   //assertThrown(diff_main(null, null));
 }
