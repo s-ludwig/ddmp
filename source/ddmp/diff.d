@@ -306,6 +306,8 @@ unittest {
     assert(commonPrefix("abcd", "abdd") == 2);
     assert(commonPrefix("abäd", "abäe") == 4);
     assert(commonPrefix("abä", "abö") == 2);
+    assert(commonPrefix("March", "März") == 1);
+    assert(commonPrefix("Atü", "Atu") == 2);
 }
 
 size_t commonSuffix(Str)(Str text1, Str text2)
@@ -327,6 +329,12 @@ unittest {
     assert(commonSuffix("acäd", "abäd") == 3);
     assert(commonSuffix("äbc", "öbc") == 2);
     assert(commonSuffix("äbc", "öbc") == 2);
+    assert(commonSuffix("über", "uber") == 3);
+    assert(commonSuffix("uber", "über") == 3);
+    // NOTE: the following two cases are equivalent
+    assert(commonSuffix("€", "À") == 0);
+    assert(commonSuffix(x"C280", x"C380") == 0);
+    assert(commonSuffix("€a", "Àa") == 1);
 }
 
 /**
